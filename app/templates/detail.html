@@ -16,6 +16,11 @@
         .answer-no { background: #fbdada; color: #a11f1f; }
         .evidence { margin-top: 10px; padding: 10px; background: #fafafa; border-radius: 6px; }
         .files a { display: block; margin-top: 6px; color: #1A4D8F; }
+        .review-section { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
+        .review-form label { display: block; margin-top: 10px; font-weight: bold; }
+        .review-form select, .review-form textarea { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        .review-form button { background: #1A4D8F; color: white; padding: 10px 20px; border: none; border-radius: 6px; margin-top: 14px; cursor: pointer; }
+        .review-form button:hover { background: #0F3D73; }
         .review-history { margin-top: 30px; }
         .review-item { border-left: 3px solid #1A4D8F; padding-left: 12px; margin-bottom: 12px; }
     </style>
@@ -54,6 +59,24 @@
         {% endif %}
     </div>
     {% endfor %}
+
+    <div class="review-section">
+        <h2>Add Review</h2>
+        <form method="POST" class="review-form">
+            <label for="status">Status</label>
+            <select name="status" id="status" required>
+                <option value="">- Select -</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="needs_follow_up">Needs Follow-up</option>
+                <option value="accepted">Accepted</option>
+            </select>
+
+            <label for="notes">Notes</label>
+            <textarea name="notes" id="notes" rows="3" required></textarea>
+
+            <button type="submit">Save Review</button>
+        </form>
+    </div>
 
     <div class="review-history">
         <h2>Review History</h2>

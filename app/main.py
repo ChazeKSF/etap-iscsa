@@ -70,7 +70,7 @@ def submit_form(token):
                     INSERT INTO evidence_files (response_id, file_name, file_path)
                     VALUES (?, ?, ?)
                     """,
-                    (response_id, file.filename, file_path)
+                    (response_id, safe_filename, file_path)
                 )
 
         db.execute(
@@ -154,10 +154,31 @@ def dashboard():
         user_role=session["user_role"]
     )
 
-@app.route("/dashboard/<int:assignment_id>")
+@app.route("/dashboard/<int:assignment_id>", methods=["GET", "POST"])
 @login_required
 def submission_detail(assignment_id):
     db = get_db()
+
+    if request.method == "POST":
+        new_status = request.form.get("status")
+        notes = request.form.get("notes")
+
+        db.execute(
+            """
+            INSERT INTO reviews (assignment_id, reviewed_by, status, notes)
+            VALUES (?, ?, ?, ?)
+            """,
+            (assignment_id, session["user_id"], new_status, notes)
+        )
+
+        # Also update the assignment's overall status for easy dashboard filtering
+        db.execute(
+            "UPDATE csa_assignments SET status = ? WHERE id = ?",
+            (new_status, assignment_id)
+        )
+        db.commit()
+
+        return redirect(url_for("submission_detail", assignment_id=assignment_id))
 
     assignment = db.execute(
         """
@@ -183,7 +204,6 @@ def submission_detail(assignment_id):
         (assignment_id,)
     ).fetchall()
 
-    # Attach files to each response
     response_list = []
     for r in responses:
         files = db.execute(
