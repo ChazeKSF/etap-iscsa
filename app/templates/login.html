@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eTap ISCSA - GRC Login</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 0 20px; }
+        h1 { color: #1A4D8F; font-size: 24px; }
+        label { display: block; margin-top: 12px; font-weight: bold; }
+        input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        button { background: #1A4D8F; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; margin-top: 20px; width: 100%; }
+        button:hover { background: #0F3D73; }
+        .error { color: red; margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <h1>eTap ISCSA — GRC Login</h1>
+    <form method="POST">
+        <label for="email">Email</label>
+        <input type="email" name="email" id="email" required>
+
+        <label for="password">Password</label>
+        <input type="password" name="password" id="password" required>
+
+        <button type="submit">Log In</button>
+    </form>
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+</body>
+</html>

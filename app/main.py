@@ -1,9 +1,10 @@
-from flask import Flask, g, render_template, abort, request
+from flask import Flask, g, render_template, abort, request, redirect, url_for, session
+from werkzeug.security import check_password_hash
 import sqlite3
 import os
 
-
 app = Flask(__name__)
+app.secret_key = "dev-secret-key-change-this-later"  # temporary, we'll move this to .env soon
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database", "etap.db")
 
@@ -88,6 +89,50 @@ def submit_form(token):
         year=assignment["year"],
         controls=controls
     )
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        db = get_db()
+        user = db.execute(
+            "SELECT * FROM users WHERE email = ? AND is_active = 1", (email,)
+        ).fetchone()
+
+        if user is None or user["password_hash"] is None:
+            error = "Invalid email or password."
+        elif not check_password_hash(user["password_hash"], password):
+            error = "Invalid email or password."
+        else:
+            session["user_id"] = user["id"]
+            session["user_name"] = user["name"]
+            session["user_role"] = user["role"]
+            return redirect(url_for("dashboard"))
+
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+def login_required(func):
+    from functools import wraps
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return func(*args, **kwargs)
+    return wrapper
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    return f"Welcome, {session['user_name']}! (Role: {session['user_role']}) — Dashboard coming next."
 
 if __name__ == "__main__":
     app.run(debug=True)
