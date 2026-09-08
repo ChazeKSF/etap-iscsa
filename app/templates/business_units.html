@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eTap ISCSA - Manage Business Units</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #1A4D8F; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .topbar a { color: #1A4D8F; text-decoration: none; font-weight: bold; margin-left: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; margin-bottom: 30px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+        th { background: #1A4D8F; color: white; }
+        .add-form, .rename-form { background: #f7f9fb; padding: 16px; border-radius: 8px; margin-bottom: 12px; }
+        label { display: block; margin-top: 8px; font-weight: bold; font-size: 13px; }
+        input { width: 100%; padding: 6px; margin-top: 4px; box-sizing: border-box; }
+        button { background: #1A4D8F; color: white; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #0F3D73; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>Manage Business Units</h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for bu in business_units %}
+            <tr>
+                <td>{{ bu.code }}</td>
+                <td>{{ bu.name }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Add Business Unit</h2>
+    <form method="POST" class="add-form">
+        <input type="hidden" name="action" value="add">
+        <label for="code">Code</label>
+        <input type="text" name="code" id="code" required maxlength="10">
+        <label for="name">Name</label>
+        <input type="text" name="name" id="name" required>
+        <button type="submit">Add</button>
+    </form>
+
+    <h2>Rename Business Unit</h2>
+    <form method="POST" class="rename-form">
+        <input type="hidden" name="action" value="rename">
+        <label for="bu_id">Select Business Unit</label>
+        <select name="bu_id" id="bu_id" required>
+            <option value="">- Select -</option>
+            {% for bu in business_units %}
+            <option value="{{ bu.id }}">{{ bu.code }} - {{ bu.name }}</option>
+            {% endfor %}
+        </select>
+        <label for="new_code">New Code</label>
+        <input type="text" name="new_code" id="new_code" required maxlength="10">
+        <label for="new_name">New Name</label>
+        <input type="text" name="new_name" id="new_name" required>
+        <button type="submit">Rename</button>
+    </form>
+</body>
+</html>

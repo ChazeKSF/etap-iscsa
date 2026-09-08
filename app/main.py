@@ -22,6 +22,26 @@ def close_db(exception):
     if db is not None:
         db.close()
 
+def login_required(func):
+    from functools import wraps
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return func(*args, **kwargs)
+    return wrapper
+
+def admin_required(func):
+    from functools import wraps
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        if session.get("user_role") != "admin":
+            abort(403)
+        return func(*args, **kwargs)
+    return wrapper
+
 @app.route("/")
 def home():
     return "eTap ISCSA is running!"
@@ -118,15 +138,6 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-def login_required(func):
-    from functools import wraps
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        if "user_id" not in session:
-            return redirect(url_for("login"))
-        return func(*args, **kwargs)
-    return wrapper
-
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -171,7 +182,6 @@ def submission_detail(assignment_id):
             (assignment_id, session["user_id"], new_status, notes)
         )
 
-        # Also update the assignment's overall status for easy dashboard filtering
         db.execute(
             "UPDATE csa_assignments SET status = ? WHERE id = ?",
             (new_status, assignment_id)
@@ -235,6 +245,46 @@ def submission_detail(assignment_id):
 @login_required
 def download_file(filename):
     return send_from_directory(UPLOAD_DIR, filename, as_attachment=True)
+
+@app.route("/admin/business-units", methods=["GET", "POST"])
+@admin_required
+def manage_business_units():
+    db = get_db()
+
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "add":
+            code = request.form.get("code").strip().upper()
+            name = request.form.get("name").strip()
+            db.execute(
+                "INSERT INTO business_units (code, name) VALUES (?, ?)",
+                (code, name)
+            )
+            db.commit()
+
+        elif action == "rename":
+            bu_id = request.form.get("bu_id")
+            new_code = request.form.get("new_code").strip().upper()
+            new_name = request.form.get("new_name").strip()
+            db.execute(
+                "UPDATE business_units SET code = ?, name = ? WHERE id = ?",
+                (new_code, new_name, bu_id)
+            )
+            db.commit()
+
+        return redirect(url_for("manage_business_units"))
+
+    business_units = db.execute(
+        "SELECT * FROM business_units ORDER BY code"
+    ).fetchall()
+
+    return render_template(
+        "business_units.html",
+        business_units=business_units,
+        user_name=session["user_name"],
+        user_role=session["user_role"]
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)
