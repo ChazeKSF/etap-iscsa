@@ -1,5 +1,5 @@
 from flask import Flask, g, render_template, abort, request, redirect, url_for, session, send_from_directory
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 import sqlite3
 import os
 
@@ -132,6 +132,39 @@ def login():
             return redirect(url_for("dashboard"))
 
     return render_template("login.html", error=error)
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = None
+
+    if request.method == "POST":
+        name = request.form.get("name").strip()
+        email = request.form.get("email").strip().lower()
+        password = request.form.get("password")
+        confirm_password = request.form.get("confirm_password")
+
+        db = get_db()
+        existing = db.execute(
+            "SELECT id FROM users WHERE email = ?", (email,)
+        ).fetchone()
+
+        if password != confirm_password:
+            error = "Passwords do not match."
+        elif existing is not None:
+            error = "An account with this email already exists."
+        else:
+            password_hash = generate_password_hash(password)
+            db.execute(
+                """
+                INSERT INTO users (email, name, password_hash, auth_provider, role, is_active)
+                VALUES (?, ?, ?, 'manual', 'user', 1)
+                """,
+                (email, name, password_hash)
+            )
+            db.commit()
+            return redirect(url_for("login"))
+
+    return render_template("register.html", error=error)
 
 @app.route("/logout")
 def logout():
@@ -282,6 +315,56 @@ def manage_business_units():
     return render_template(
         "business_units.html",
         business_units=business_units,
+        user_name=session["user_name"],
+        user_role=session["user_role"]
+    )
+
+@app.route("/admin/users", methods=["GET", "POST"])
+@admin_required
+def manage_users():
+    db = get_db()
+
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "toggle_role":
+            user_id = request.form.get("user_id")
+            new_role = request.form.get("new_role")
+            db.execute(
+                "UPDATE users SET role = ? WHERE id = ?",
+                (new_role, user_id)
+            )
+            db.commit()
+
+        elif action == "deactivate":
+            user_id = request.form.get("user_id")
+            db.execute(
+                """
+                UPDATE users
+                SET is_active = 0, deactivated_at = CURRENT_TIMESTAMP, deactivated_by = ?
+                WHERE id = ?
+                """,
+                (session["user_id"], user_id)
+            )
+            db.commit()
+
+        elif action == "reactivate":
+            user_id = request.form.get("user_id")
+            db.execute(
+                "UPDATE users SET is_active = 1, deactivated_at = NULL, deactivated_by = NULL WHERE id = ?",
+                (user_id,)
+            )
+            db.commit()
+
+        return redirect(url_for("manage_users"))
+
+    users = db.execute(
+        "SELECT * FROM users ORDER BY is_active DESC, name"
+    ).fetchall()
+
+    return render_template(
+        "users.html",
+        users=users,
         user_name=session["user_name"],
         user_role=session["user_role"]
     )

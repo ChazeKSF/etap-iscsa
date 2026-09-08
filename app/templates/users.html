@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eTap ISCSA - Manage Users</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 950px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #1A4D8F; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .topbar a { color: #1A4D8F; text-decoration: none; font-weight: bold; margin-left: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; margin-bottom: 30px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+        th { background: #1A4D8F; color: white; }
+        .inactive { color: #999; font-style: italic; }
+        .role-badge { padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: bold; }
+        .role-admin { background: #d6e4f5; color: #1A4D8F; }
+        .role-user { background: #eee; color: #555; }
+        .inline-form { display: inline; }
+        .action-btn { background: none; border: 1px solid #1A4D8F; color: #1A4D8F; padding: 4px 10px; border-radius: 4px; font-size: 12px; margin-right: 4px; cursor: pointer; }
+        .action-btn:hover { background: #1A4D8F; color: white; }
+        .note { background: #f0f4f8; padding: 12px 16px; border-radius: 6px; font-size: 13px; color: #555; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>Manage Users</h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </div>
+
+    <div class="note">
+        New GRC team members can create their own account via the Register page on the login screen. Newly registered accounts default to the "user" role — promote to "admin" below if needed.
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr class="{{ 'inactive' if not u.is_active }}">
+                <td>{{ u.name }}</td>
+                <td>{{ u.email }}</td>
+                <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
+                <td>{{ "Active" if u.is_active else "Deactivated" }}</td>
+                <td>
+                    {% if u.is_active %}
+                        <form method="POST" class="inline-form">
+                            <input type="hidden" name="action" value="toggle_role">
+                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                            <input type="hidden" name="new_role" value="{{ 'user' if u.role == 'admin' else 'admin' }}">
+                            <button type="submit" class="action-btn">
+                                {{ "Demote to User" if u.role == "admin" else "Promote to Admin" }}
+                            </button>
+                        </form>
+                        <form method="POST" class="inline-form">
+                            <input type="hidden" name="action" value="deactivate">
+                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                            <button type="submit" class="action-btn">Deactivate</button>
+                        </form>
+                    {% else %}
+                        <form method="POST" class="inline-form">
+                            <input type="hidden" name="action" value="reactivate">
+                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                            <button type="submit" class="action-btn">Reactivate</button>
+                        </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
