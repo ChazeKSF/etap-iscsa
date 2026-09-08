@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eTap ISCSA - Submit CSA</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #1A4D8F; }
+        .bu-info { background: #f0f4f8; padding: 12px 16px; border-radius: 6px; margin-bottom: 24px; }
+        .control-block { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+        .control-code { font-weight: bold; color: #1A4D8F; }
+        .control-question { margin: 8px 0 16px 0; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        textarea, input[type="file"] { width: 100%; margin-top: 4px; padding: 8px; box-sizing: border-box; }
+        .yesno { margin-top: 8px; }
+        .yesno label { display: inline; font-weight: normal; margin-right: 16px; }
+        button { background: #1A4D8F; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; margin-top: 24px; }
+        button:hover { background: #0F3D73; }
+    </style>
+</head>
+<body>
+    <h1>Information Security Controls Self-Assessment</h1>
+    <div class="bu-info">
+        <strong>Business Unit:</strong> {{ business_unit_name }}<br>
+        <strong>Year:</strong> {{ year }}
+    </div>
+
+    <form method="POST" enctype="multipart/form-data">
+        {% for control in controls %}
+        <div class="control-block">
+            <div class="control-code">{{ control.control_code }}</div>
+            <div class="control-question">{{ control.question_text }}</div>
+
+            <div class="yesno">
+                <label><input type="radio" name="answer_{{ control.id }}" value="Yes" required> Yes</label>
+                <label><input type="radio" name="answer_{{ control.id }}" value="No"> No</label>
+            </div>
+
+            <label for="evidence_{{ control.id }}">Evidence / Explanation</label>
+            <textarea name="evidence_{{ control.id }}" id="evidence_{{ control.id }}" rows="3" required></textarea>
+
+            <label for="file_{{ control.id }}">Attach Supporting File (optional)</label>
+            <input type="file" name="file_{{ control.id }}" id="file_{{ control.id }}">
+        </div>
+        {% endfor %}
+
+        <button type="submit">Submit CSA</button>
+    </form>
+</body>
+</html>
