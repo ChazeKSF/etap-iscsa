@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eTap ISCSA - GRC Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #1A4D8F; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .topbar span { color: #555; }
+        .topbar a { color: #1A4D8F; text-decoration: none; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+        th { background: #1A4D8F; color: white; }
+        tr:nth-child(even) { background: #f7f9fb; }
+        .status { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .status-pending { background: #eee; color: #666; }
+        .status-submitted { background: #fff4d6; color: #8a6d00; }
+        .status-reviewed { background: #d6f5e0; color: #1a7a3d; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>GRC Dashboard</h1>
+        <span>Logged in as <strong>{{ user_name }}</strong> ({{ user_role }}) — <a href="{{ url_for('logout') }}">Logout</a></span>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Business Unit</th>
+                <th>Year</th>
+                <th>Status</th>
+                <th>Submitted At</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in assignments %}
+            <tr>
+                <td>{{ a.id }}</td>
+                <td>{{ a.bu_name }} ({{ a.bu_code }})</td>
+                <td>{{ a.year }}</td>
+                <td><span class="status status-{{ a.status }}">{{ a.status }}</span></td>
+                <td>{{ a.submitted_at or "—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

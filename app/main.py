@@ -4,7 +4,7 @@ import sqlite3
 import os
 
 app = Flask(__name__)
-app.secret_key = "dev-secret-key-change-this-later"  # temporary, we'll move this to .env soon
+app.secret_key = "dev-secret-key-change-this-later"
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database", "etap.db")
 
@@ -132,7 +132,29 @@ def login_required(func):
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return f"Welcome, {session['user_name']}! (Role: {session['user_role']}) — Dashboard coming next."
+    db = get_db()
+
+    assignments = db.execute(
+        """
+        SELECT
+            csa_assignments.id,
+            csa_assignments.year,
+            csa_assignments.status,
+            csa_assignments.submitted_at,
+            business_units.code AS bu_code,
+            business_units.name AS bu_name
+        FROM csa_assignments
+        JOIN business_units ON csa_assignments.business_unit_id = business_units.id
+        ORDER BY csa_assignments.submitted_at DESC
+        """
+    ).fetchall()
+
+    return render_template(
+        "dashboard.html",
+        assignments=assignments,
+        user_name=session["user_name"],
+        user_role=session["user_role"]
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)
