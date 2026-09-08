@@ -1,4 +1,4 @@
-from flask import Flask, g, render_template, abort, request, redirect, url_for, session
+from flask import Flask, g, render_template, abort, request, redirect, url_for, session, send_from_directory
 from werkzeug.security import check_password_hash
 import sqlite3
 import os
@@ -6,7 +6,9 @@ import os
 app = Flask(__name__)
 app.secret_key = "dev-secret-key-change-this-later"
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database", "etap.db")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "database", "etap.db")
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
 def get_db():
     if "db" not in g:
@@ -58,13 +60,9 @@ def submit_form(token):
 
             file = request.files.get(f"file_{control_id}")
             if file and file.filename != "":
-                upload_folder = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"
-                )
-                os.makedirs(upload_folder, exist_ok=True)
-
+                os.makedirs(UPLOAD_DIR, exist_ok=True)
                 safe_filename = f"{assignment['id']}_{control_id}_{file.filename}"
-                file_path = os.path.join(upload_folder, safe_filename)
+                file_path = os.path.join(UPLOAD_DIR, safe_filename)
                 file.save(file_path)
 
                 db.execute(
@@ -155,6 +153,68 @@ def dashboard():
         user_name=session["user_name"],
         user_role=session["user_role"]
     )
+
+@app.route("/dashboard/<int:assignment_id>")
+@login_required
+def submission_detail(assignment_id):
+    db = get_db()
+
+    assignment = db.execute(
+        """
+        SELECT csa_assignments.*, business_units.name AS bu_name, business_units.code AS bu_code
+        FROM csa_assignments
+        JOIN business_units ON csa_assignments.business_unit_id = business_units.id
+        WHERE csa_assignments.id = ?
+        """,
+        (assignment_id,)
+    ).fetchone()
+
+    if assignment is None:
+        abort(404)
+
+    responses = db.execute(
+        """
+        SELECT responses.*, controls.control_code, controls.question_text
+        FROM responses
+        JOIN controls ON responses.control_id = controls.id
+        WHERE responses.assignment_id = ?
+        ORDER BY controls.control_code
+        """,
+        (assignment_id,)
+    ).fetchall()
+
+    # Attach files to each response
+    response_list = []
+    for r in responses:
+        files = db.execute(
+            "SELECT * FROM evidence_files WHERE response_id = ?", (r["id"],)
+        ).fetchall()
+        response_list.append({"response": r, "files": files})
+
+    reviews = db.execute(
+        """
+        SELECT reviews.*, users.name AS reviewer_name
+        FROM reviews
+        JOIN users ON reviews.reviewed_by = users.id
+        WHERE reviews.assignment_id = ?
+        ORDER BY reviews.reviewed_at DESC
+        """,
+        (assignment_id,)
+    ).fetchall()
+
+    return render_template(
+        "detail.html",
+        assignment=assignment,
+        response_list=response_list,
+        reviews=reviews,
+        user_name=session["user_name"],
+        user_role=session["user_role"]
+    )
+
+@app.route("/uploads/<path:filename>")
+@login_required
+def download_file(filename):
+    return send_from_directory(UPLOAD_DIR, filename, as_attachment=True)
 
 if __name__ == "__main__":
     app.run(debug=True)

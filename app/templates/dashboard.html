@@ -13,6 +13,8 @@
         th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
         th { background: #1A4D8F; color: white; }
         tr:nth-child(even) { background: #f7f9fb; }
+        tr.clickable { cursor: pointer; }
+        tr.clickable:hover { background: #e8f0fa; }
         .status { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
         .status-pending { background: #eee; color: #666; }
         .status-submitted { background: #fff4d6; color: #8a6d00; }
@@ -24,7 +26,6 @@
         <h1>GRC Dashboard</h1>
         <span>Logged in as <strong>{{ user_name }}</strong> ({{ user_role }}) — <a href="{{ url_for('logout') }}">Logout</a></span>
     </div>
-
     <table>
         <thead>
             <tr>
@@ -37,7 +38,7 @@
         </thead>
         <tbody>
             {% for a in assignments %}
-            <tr>
+            <tr class="clickable" data-id="{{ a.id }}">
                 <td>{{ a.id }}</td>
                 <td>{{ a.bu_name }} ({{ a.bu_code }})</td>
                 <td>{{ a.year }}</td>
@@ -47,5 +48,15 @@
             {% endfor %}
         </tbody>
     </table>
+
+    <script>
+        const rows = document.querySelectorAll("tr.clickable");
+        rows.forEach(row => {
+            row.addEventListener("click", () => {
+                const id = row.getAttribute("data-id");
+                window.location.href = "/dashboard/" + id;
+            });
+        });
+    </script>
 </body>
 </html>

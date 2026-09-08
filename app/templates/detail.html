@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eTap ISCSA - Submission Detail</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #1A4D8F; font-size: 22px; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .topbar a { color: #1A4D8F; text-decoration: none; font-weight: bold; }
+        .bu-info { background: #f0f4f8; padding: 12px 16px; border-radius: 6px; margin-bottom: 24px; }
+        .control-block { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+        .control-code { font-weight: bold; color: #1A4D8F; }
+        .answer-badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+        .answer-yes { background: #d6f5e0; color: #1a7a3d; }
+        .answer-no { background: #fbdada; color: #a11f1f; }
+        .evidence { margin-top: 10px; padding: 10px; background: #fafafa; border-radius: 6px; }
+        .files a { display: block; margin-top: 6px; color: #1A4D8F; }
+        .review-history { margin-top: 30px; }
+        .review-item { border-left: 3px solid #1A4D8F; padding-left: 12px; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>Submission Detail — {{ assignment.bu_name }} ({{ assignment.bu_code }})</h1>
+        <a href="{{ url_for('dashboard') }}">&larr; Back to Dashboard</a>
+    </div>
+
+    <div class="bu-info">
+        <strong>Year:</strong> {{ assignment.year }}<br>
+        <strong>Status:</strong> {{ assignment.status }}<br>
+        <strong>Submitted At:</strong> {{ assignment.submitted_at or "—" }}
+    </div>
+
+    {% for item in response_list %}
+    <div class="control-block">
+        <div class="control-code">{{ item.response.control_code }}</div>
+        <div>{{ item.response.question_text }}</div>
+        <div>
+            Answer:
+            <span class="answer-badge answer-{{ item.response.answer|lower }}">{{ item.response.answer }}</span>
+        </div>
+        <div class="evidence">
+            <strong>Evidence:</strong><br>
+            {{ item.response.evidence_text }}
+        </div>
+        {% if item.files %}
+        <div class="files">
+            <strong>Attached Files:</strong>
+            {% for f in item.files %}
+            <a href="{{ url_for('download_file', filename=f.file_name) }}">{{ f.file_name }}</a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="review-history">
+        <h2>Review History</h2>
+        {% if reviews %}
+            {% for r in reviews %}
+            <div class="review-item">
+                <strong>{{ r.status }}</strong> — {{ r.reviewer_name }} — {{ r.reviewed_at }}<br>
+                {{ r.notes }}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p>No reviews yet.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
