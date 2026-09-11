@@ -176,24 +176,52 @@ def logout():
 def dashboard():
     db = get_db()
 
-    assignments = db.execute(
-        """
+    filter_bu = request.args.get("bu", "")
+    filter_status = request.args.get("status", "")
+    filter_year = request.args.get("year", "")
+
+    query = """
         SELECT
             csa_assignments.id,
             csa_assignments.year,
             csa_assignments.status,
             csa_assignments.submitted_at,
+            business_units.id AS bu_id,
             business_units.code AS bu_code,
             business_units.name AS bu_name
         FROM csa_assignments
         JOIN business_units ON csa_assignments.business_unit_id = business_units.id
-        ORDER BY csa_assignments.submitted_at DESC
-        """
-    ).fetchall()
+        WHERE 1=1
+    """
+    params = []
+
+    if filter_bu:
+        query += " AND business_units.id = ?"
+        params.append(filter_bu)
+
+    if filter_status:
+        query += " AND csa_assignments.status = ?"
+        params.append(filter_status)
+
+    if filter_year:
+        query += " AND csa_assignments.year = ?"
+        params.append(filter_year)
+
+    query += " ORDER BY csa_assignments.submitted_at DESC"
+
+    assignments = db.execute(query, params).fetchall()
+
+    business_units = db.execute("SELECT * FROM business_units ORDER BY code").fetchall()
+    years = db.execute("SELECT DISTINCT year FROM csa_assignments ORDER BY year DESC").fetchall()
 
     return render_template(
         "dashboard.html",
         assignments=assignments,
+        business_units=business_units,
+        years=years,
+        filter_bu=filter_bu,
+        filter_status=filter_status,
+        filter_year=filter_year,
         user_name=session["user_name"],
         user_role=session["user_role"]
     )

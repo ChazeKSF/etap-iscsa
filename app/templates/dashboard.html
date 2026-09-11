@@ -8,7 +8,14 @@
         h1 { color: #1A4D8F; }
         .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .topbar span { color: #555; }
-        .topbar a { color: #1A4D8F; text-decoration: none; font-weight: bold; }
+        .topbar a { color: #1A4D8F; text-decoration: none; font-weight: bold; margin-left: 12px; }
+        .filters { background: #f7f9fb; padding: 14px 16px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 16px; align-items: end; flex-wrap: wrap; }
+        .filters div { display: flex; flex-direction: column; }
+        .filters label { font-size: 12px; font-weight: bold; margin-bottom: 4px; color: #555; }
+        .filters select { padding: 6px; min-width: 160px; }
+        .filters button { background: #1A4D8F; color: white; padding: 7px 16px; border: none; border-radius: 6px; cursor: pointer; }
+        .filters button:hover { background: #0F3D73; }
+        .filters a.clear { font-size: 13px; color: #a11f1f; text-decoration: none; align-self: center; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
         th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
         th { background: #1A4D8F; color: white; }
@@ -19,13 +26,62 @@
         .status-pending { background: #eee; color: #666; }
         .status-submitted { background: #fff4d6; color: #8a6d00; }
         .status-reviewed { background: #d6f5e0; color: #1a7a3d; }
+        .status-needs_follow_up { background: #fbe4d6; color: #a15a1f; }
+        .status-accepted { background: #d6f5e0; color: #1a7a3d; }
     </style>
 </head>
 <body>
     <div class="topbar">
         <h1>GRC Dashboard</h1>
-        <span>Logged in as <strong>{{ user_name }}</strong> ({{ user_role }}) — <a href="{{ url_for('logout') }}">Logout</a></span>
+        <span>
+            Logged in as <strong>{{ user_name }}</strong> ({{ user_role }})
+            {% if user_role == "admin" %}
+                <a href="{{ url_for('manage_business_units') }}">Manage BUs</a>
+                <a href="{{ url_for('manage_users') }}">Manage Users</a>
+            {% endif %}
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </span>
     </div>
+
+    <form method="GET" class="filters">
+        <div>
+            <label for="bu">Business Unit</label>
+            <select name="bu" id="bu">
+                <option value="">All</option>
+                {% for bu in business_units %}
+                <option value="{{ bu.id }}" {{ "selected" if filter_bu == bu.id|string else "" }}>
+                    {{ bu.code }} - {{ bu.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label for="status">Status</label>
+            <select name="status" id="status">
+                <option value="">All</option>
+                <option value="pending" {{ "selected" if filter_status == "pending" else "" }}>Pending</option>
+                <option value="submitted" {{ "selected" if filter_status == "submitted" else "" }}>Submitted</option>
+                <option value="reviewed" {{ "selected" if filter_status == "reviewed" else "" }}>Reviewed</option>
+                <option value="needs_follow_up" {{ "selected" if filter_status == "needs_follow_up" else "" }}>Needs Follow-up</option>
+                <option value="accepted" {{ "selected" if filter_status == "accepted" else "" }}>Accepted</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="year">Year</label>
+            <select name="year" id="year">
+                <option value="">All</option>
+                {% for y in years %}
+                <option value="{{ y.year }}" {{ "selected" if filter_year == y.year|string else "" }}>{{ y.year }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit">Apply Filters</button>
+        <a href="{{ url_for('dashboard') }}" class="clear">Clear</a>
+    </form>
+
     <table>
         <thead>
             <tr>
