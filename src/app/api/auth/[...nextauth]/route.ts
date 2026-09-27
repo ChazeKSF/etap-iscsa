@@ -13,24 +13,16 @@ export const authOptions: NextAuthOptions = {
     error: '/login',
   },
   callbacks: {
-    async signIn({ user }) {
-      if (!user.email) return false;
+  async signIn({ user }) {
+    // Check if the user has an email and if it ends with @etapinc.com
+    const isAllowedDomain = user.email?.toLowerCase().endsWith("@etapinc.com");
 
-      const allowedEmails = (process.env.ALLOWED_GRC_EMAILS || '')
-        .split(',')
-        .map((email) => email.trim().toLowerCase())
-        .filter((email) => email !== '');
+    if (isAllowedDomain) {
+      return true; // Allow access
+    }
 
-      if (allowedEmails.length > 0) {
-        const isAuthorized = allowedEmails.includes(user.email.toLowerCase());
-        if (!isAuthorized) {
-          console.warn(`Unauthorized login attempt by: ${user.email}`);
-          return false;
-        }
-      }
-
-      return true;
-    },
+    return false; // Deny access for any other domain
+  },
     async session({ session }) {
       if (session.user) {
         session.user.isGRC = true;

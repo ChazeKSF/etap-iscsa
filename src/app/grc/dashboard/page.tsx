@@ -1,5 +1,7 @@
 'use client';
 
+import { signOut, useSession } from 'next-auth/react';
+import { LogOut } from 'lucide-react'; // Add LogOut to your lucide-react import
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
@@ -66,6 +68,7 @@ interface FullGapAnalysis {
 }
 
 export default function GRCDashboardPage() {
+  const { data: session } = useSession(); 
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [analysisResults, setAnalysisResults] = useState<Record<string, FullGapAnalysis>>({});
@@ -307,7 +310,7 @@ export default function GRCDashboardPage() {
         }
       `}</style>
 
-      {/* Screen Header */}
+    {/* Screen Header */}
       <header className="no-print max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 mb-8 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -319,13 +322,32 @@ export default function GRCDashboardPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchSubmissions}
-          className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 rounded-lg transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Refresh Button */}
+          <button
+            onClick={fetchSubmissions}
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 rounded-lg transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+
+          {/* User Session Info & Logout Button */}
+          {session?.user && (
+            <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
+              <span className="text-xs text-slate-400 font-medium">
+                {session.user.email}
+              </span>
+              <button
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs border border-red-500/30 rounded-lg transition-colors font-medium"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign Out
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <main className="max-w-6xl mx-auto space-y-8">
