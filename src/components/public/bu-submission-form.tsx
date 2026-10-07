@@ -1,81 +1,91 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShieldCheck, Send, CheckCircle2, AlertCircle, Upload, FileText, X } from 'lucide-react';
+import { ShieldCheck, Upload, FileText, CheckCircle2, AlertCircle, X, Send, Loader2 } from 'lucide-react';
 
-interface ControlItem {
+// --- TYPES & INTERFACES ---
+export interface IsoControl {
   id: string;
   title: string;
-  description: string;
   category: string;
+  description: string;
 }
 
-interface EvidenceFile {
+export interface EvidenceFile {
   fileName: string;
   fileType: string;
+  fileSize: number;
   base64Data: string;
 }
 
-const ISO_CONTROLS: ControlItem[] = [
+// --- ISO CONTROLS LIST ---
+// If you already have this in @/lib/constants, uncomment the import below and remove this local array.
+// import { ISO_CONTROLS } from '@/lib/constants';
+
+const ISO_CONTROLS: IsoControl[] = [
   {
     id: 'A.5.1',
     title: 'Policies for information security',
+    category: 'Organizational Controls',
     description:
       'Information security policy and topic-specific policies shall be defined, approved by management, published, communicated to and acknowledged by relevant personnel and relevant interested parties.',
-    category: 'Organizational Controls',
   },
   {
     id: 'A.5.15',
     title: 'Access control',
+    category: 'Organizational Controls',
     description:
       'Rules to control physical and logical access to information and other associated assets shall be established and implemented based on business and information security requirements.',
-    category: 'Organizational Controls',
   },
   {
     id: 'A.5.30',
     title: 'ICT readiness for business continuity',
+    category: 'Organizational Controls',
     description:
       'ICT readiness shall be planned, implemented, maintained and tested based on business continuity objectives and ICT continuity requirements.',
-    category: 'Organizational Controls',
   },
   {
     id: 'A.6.3',
     title: 'Information security awareness, education and training',
+    category: 'People Controls',
     description:
       'Personnel of the organization and relevant interested parties shall receive appropriate information security awareness, education and training and regular updates of the organization\'s information security.',
-    category: 'People Controls',
   },
   {
     id: 'A.8.12',
     title: 'Data leakage prevention',
+    category: 'Technological Controls',
     description:
       'Data leakage prevention measures shall be applied to systems, networks and any other devices that process, store or transmit sensitive information.',
-    category: 'Technological Controls',
   },
   {
     id: 'A.8.8',
     title: 'Management of technical vulnerabilities',
+    category: 'Technological Controls',
     description:
       'Information about technical vulnerabilities of information systems in use shall be obtained, the organization\'s exposure to such vulnerabilities evaluated, and appropriate measures taken.',
-    category: 'Technological Controls',
   },
 ];
+
+const MAX_SINGLE_FILE_MB = 1;
+const MAX_TOTAL_PAYLOAD_MB = 2.0;
 
 export function BUSubmissionForm() {
   const [businessUnit, setBusinessUnit] = useState('ENG: Engineering');
   const [submitterName, setSubmitterName] = useState('');
   const [submitterEmail, setSubmitterEmail] = useState('');
-  
+
   const [answers, setAnswers] = useState<
     Record<string, { implemented: boolean; notes: string }>
   >(() =>
-    ISO_CONTROLS.reduce((acc, ctrl) => {
+    ISO_CONTROLS.reduce((acc: Record<string, { implemented: boolean; notes: string }>, ctrl: IsoControl) => {
       acc[ctrl.id] = { implemented: true, notes: '' };
       return acc;
-    }, {} as Record<string, { implemented: boolean; notes: string }>)
+    }, {})
   );
 
   const [evidenceFiles, setEvidenceFiles] = useState<EvidenceFile[]>([]);
+  const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -98,28 +108,54 @@ export function BUSubmissionForm() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file) => {
+    setErrorMsg('');
+    setIsReadingFiles(true);
+
+    const fileList = Array.from(files);
+    let pendingReads = fileList.length;
+
+    fileList.forEach((file) => {
+      if (file.size > MAX_SINGLE_FILE_MB * 1024 * 1024) {
+        setErrorMsg(`"${file.name}" is too large. Max size per file is ${MAX_SINGLE_FILE_MB}MB.`);
+        pendingReads--;
+        if (pendingReads === 0) setIsReadingFiles(false);
+        return;
+      }
+
       const reader = new FileReader();
+
       reader.onload = () => {
         const base64String = (reader.result as string).split(',')[1];
+
         setEvidenceFiles((prev) => [
           ...prev,
           {
             fileName: file.name,
             fileType: file.type || 'application/octet-stream',
+            fileSize: file.size,
             base64Data: base64String,
           },
         ]);
+
+        pendingReads--;
+        if (pendingReads === 0) setIsReadingFiles(false);
       };
+
+      reader.onerror = () => {
+        setErrorMsg(`Failed to read file: ${file.name}`);
+        pendingReads--;
+        if (pendingReads === 0) setIsReadingFiles(false);
+      };
+
       reader.readAsDataURL(file);
     });
 
-    // Reset input value so the same file can be re-uploaded if needed
     e.target.value = '';
   };
 
   const removeFile = (indexToRemove: number) => {
     setEvidenceFiles((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+    setErrorMsg('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -132,28 +168,48 @@ export function BUSubmissionForm() {
         businessUnit,
         submitterName,
         submitterEmail,
-        answers: ISO_CONTROLS.map((ctrl) => ({
+        answers: ISO_CONTROLS.map((ctrl: IsoControl) => ({
           controlId: ctrl.id,
           controlName: ctrl.title,
           category: ctrl.category,
-          implemented: answers[ctrl.id].implemented,
-          notes: answers[ctrl.id].notes,
+          implemented: answers[ctrl.id]?.implemented ?? true,
+          notes: answers[ctrl.id]?.notes ?? '',
         })),
         evidenceFiles,
       };
 
+      const payloadString = JSON.stringify(payload);
+      const payloadSizeBytes = new Blob([payloadString]).size;
+      const payloadSizeMB = payloadSizeBytes / (1024 * 1024);
+
+      if (payloadSizeMB > MAX_TOTAL_PAYLOAD_MB) {
+        throw new Error(
+          `Total submission size (${payloadSizeMB.toFixed(2)}MB) exceeds server limit (${MAX_TOTAL_PAYLOAD_MB}MB). Please remove or shrink attached files.`
+        );
+      }
+
       const res = await fetch('/api/public/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: payloadString,
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Submission failed');
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        throw new Error('Server returned an unreadable response.');
+      }
+
+      if (!res.ok) throw new Error(data?.error || 'Submission failed on server');
 
       setSubmittedSuccess(true);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Something went wrong submitting your assessment.');
+      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+        setErrorMsg('Network error (fetch failed). Attached files may be too large for the server payload limit.');
+      } else {
+        setErrorMsg(err.message || 'Something went wrong submitting your assessment.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -169,6 +225,8 @@ export function BUSubmissionForm() {
           <span className="text-white font-medium">{businessUnit}</span> have been logged and assigned to the GRC team.
         </p>
         <button
+          type="button"
+          suppressHydrationWarning
           onClick={() => {
             setSubmittedSuccess(false);
             setSubmitterName('');
@@ -184,7 +242,7 @@ export function BUSubmissionForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-8">
+    <form onSubmit={handleSubmit} suppressHydrationWarning className="max-w-4xl mx-auto space-y-8">
       {/* 1. Business Unit Details */}
       <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-4">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -196,6 +254,7 @@ export function BUSubmissionForm() {
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">Business Unit</label>
             <select
+              suppressHydrationWarning
               value={businessUnit}
               onChange={(e) => setBusinessUnit(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
@@ -220,6 +279,7 @@ export function BUSubmissionForm() {
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">Submitter Full Name</label>
             <input
+              suppressHydrationWarning
               type="text"
               required
               placeholder="e.g. Jane Doe"
@@ -232,6 +292,7 @@ export function BUSubmissionForm() {
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">Submitter Work Email</label>
             <input
+              suppressHydrationWarning
               type="email"
               required
               placeholder="e.g. jane.doe@company.com"
@@ -263,14 +324,15 @@ export function BUSubmissionForm() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {ISO_CONTROLS.map((ctrl) => (
+              {ISO_CONTROLS.map((ctrl: IsoControl) => (
                 <tr key={ctrl.id} className="hover:bg-slate-800/30 transition-colors">
                   <td className="p-4 font-mono font-bold text-blue-400 align-top">{ctrl.id}</td>
                   <td className="p-4 align-top space-y-2">
                     <div className="font-semibold text-white text-sm">{ctrl.title}</div>
                     <div className="text-slate-400 text-xs leading-relaxed">{ctrl.description}</div>
-                    
+
                     <input
+                      suppressHydrationWarning
                       type="text"
                       placeholder="Optional notes, exceptions, or tool implementation details..."
                       value={answers[ctrl.id]?.notes || ''}
@@ -285,6 +347,7 @@ export function BUSubmissionForm() {
                   </td>
                   <td className="p-4 align-top">
                     <select
+                      suppressHydrationWarning
                       value={answers[ctrl.id]?.implemented ? '1' : '0'}
                       onChange={(e) => handleControlChange(ctrl.id, e.target.value === '1')}
                       className={`w-full p-2 rounded text-xs font-medium border focus:outline-none ${
@@ -304,14 +367,14 @@ export function BUSubmissionForm() {
         </div>
       </section>
 
-      {/* 3. Evidence Upload (Multi-File Support) */}
+      {/* 3. Evidence Upload */}
       <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-4">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <Upload className="w-5 h-5 text-blue-400" />
           3. Upload Proof of Implementation / Evidence
         </h2>
         <p className="text-xs text-slate-400">
-          Upload supporting documentation (e.g., policies, screenshots, vulnerability scan logs, or training records). You can select and attach multiple files.
+          Upload supporting documentation (e.g., policies, screenshots, vulnerability scan logs). Max {MAX_SINGLE_FILE_MB}MB per file.
         </p>
 
         <div className="border-2 border-dashed border-slate-800 rounded-lg p-6 text-center hover:border-slate-700 transition-colors">
@@ -319,13 +382,18 @@ export function BUSubmissionForm() {
             type="file"
             id="evidence-upload"
             multiple
+            disabled={isReadingFiles}
             onChange={handleFileUpload}
             className="hidden"
           />
           <label htmlFor="evidence-upload" className="cursor-pointer space-y-2 block">
-            <FileText className="w-8 h-8 text-slate-500 mx-auto" />
+            {isReadingFiles ? (
+              <Loader2 className="w-8 h-8 text-blue-400 mx-auto animate-spin" />
+            ) : (
+              <FileText className="w-8 h-8 text-slate-500 mx-auto" />
+            )}
             <div className="text-xs text-slate-300">
-              Click to browse and attach files (Select multiple if needed)
+              {isReadingFiles ? 'Processing attached files...' : 'Click to browse and attach files (Max 2MB per file)'}
             </div>
             <div className="text-[11px] text-slate-500">PDF, PNG, JPG, or DOCX</div>
           </label>
@@ -334,7 +402,9 @@ export function BUSubmissionForm() {
         {/* List of Attached Files */}
         {evidenceFiles.length > 0 && (
           <div className="space-y-2 pt-2">
-            <div className="text-xs font-medium text-slate-400">Attached Evidence Files ({evidenceFiles.length}):</div>
+            <div className="text-xs font-medium text-slate-400">
+              Attached Evidence Files ({evidenceFiles.length}):
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {evidenceFiles.map((f, idx) => (
                 <div
@@ -344,9 +414,13 @@ export function BUSubmissionForm() {
                   <div className="flex items-center gap-2 truncate">
                     <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span className="text-slate-200 truncate">{f.fileName}</span>
+                    <span className="text-[10px] text-slate-500">
+                      ({(f.fileSize / (1024 * 1024)).toFixed(2)} MB)
+                    </span>
                   </div>
                   <button
                     type="button"
+                    suppressHydrationWarning
                     onClick={() => removeFile(idx)}
                     className="text-slate-500 hover:text-rose-400 transition-colors p-1"
                     title="Remove File"
@@ -371,11 +445,19 @@ export function BUSubmissionForm() {
       <div className="flex justify-end">
         <button
           type="submit"
-          disabled={isSubmitting}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white font-medium px-6 py-3 rounded-lg text-xs transition-colors"
+          suppressHydrationWarning
+          disabled={isSubmitting || isReadingFiles}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:opacity-60 text-white font-medium px-6 py-3 rounded-lg text-xs transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
-          <Send className="w-4 h-4" />
-          {isSubmitting ? 'Submitting Assessment...' : 'Submit Compliance Assessment'}
+          {isSubmitting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Submitting Assessment...
+            </>
+          ) : (
+            <>
+              <Send className="w-4 h-4" /> Submit Compliance Assessment
+            </>
+          )}
         </button>
       </div>
     </form>

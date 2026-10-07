@@ -1,3 +1,4 @@
+// app/api/public/submit/route.ts
 import { NextResponse } from 'next/server';
 import { turso } from '@/lib/turso';
 
@@ -10,7 +11,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const submissionId = `csa_${Date.now()}`;
+    const submissionId = `csa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     // 1. Insert main submission
     await turso.execute({
@@ -18,45 +19,49 @@ export async function POST(req: Request) {
       args: [submissionId, businessUnit, submitterName, submitterEmail, 'PENDING'],
     });
 
-    // 2. Insert control answers
-    if (Array.isArray(answers)) {
-      for (const ctrl of answers) {
-        await turso.execute({
+    // 2. Execute control answers in PARALLEL rather than sequential awaits
+    if (Array.isArray(answers) && answers.length > 0) {
+      const answerPromises = answers.map((ctrl) =>
+        turso.execute({
           sql: `INSERT INTO control_answers (id, submission_id, control_id, control_name, implemented, notes) VALUES (?, ?, ?, ?, ?, ?)`,
           args: [
-            `ctrl_${Date.now()}_${ctrl.controlId}`,
+            `ctrl_${crypto.randomUUID()}`,
             submissionId,
             ctrl.controlId,
             ctrl.controlName,
             ctrl.implemented ? 1 : 0,
             ctrl.notes || '',
           ],
-        });
-      }
+        })
+      );
+      await Promise.all(answerPromises);
     }
 
-    // 3. Insert all attached evidence files
+    // 3. Insert evidence files in PARALLEL
     if (Array.isArray(evidenceFiles) && evidenceFiles.length > 0) {
-      for (let i = 0; i < evidenceFiles.length; i++) {
-        const file = evidenceFiles[i];
-        if (file && file.base64Data) {
-          await turso.execute({
-            sql: `INSERT INTO evidence_files (id, submission_id, file_name, file_type, base64_data) VALUES (?, ?, ?, ?, ?)`,
-            args: [
-              `file_${Date.now()}_${i}`,
-              submissionId,
-              file.fileName,
-              file.fileType,
-              file.base64Data,
-            ],
-          });
-        }
-      }
+      const filePromises = evidenceFiles.map((file) => {
+        const fileSize = Number(file.fileSize ?? file.file_size ?? 0);
+        return turso.execute({
+          sql: `INSERT INTO evidence_files (id, submission_id, file_name, file_type, file_size, base64_data) VALUES (?, ?, ?, ?, ?, ?)`,
+          args: [
+            `file_${crypto.randomUUID()}`,
+            submissionId,
+            file.fileName || file.file_name || 'unnamed',
+            file.fileType || file.file_type || 'application/octet-stream',
+            fileSize,
+            file.base64Data || file.base64_data,
+          ],
+        });
+      });
+      await Promise.all(filePromises);
     }
 
     return NextResponse.json({ success: true, submissionId });
   } catch (error: any) {
     console.error('Public Submission Error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to record submission' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Failed to record submission' },
+      { status: 500 }
+    );
   }
 }

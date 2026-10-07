@@ -1,8 +1,7 @@
 'use client';
 
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { signOut, useSession } from 'next-auth/react';
-import { LogOut } from 'lucide-react'; // Add LogOut to your lucide-react import
-import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   User,
@@ -10,20 +9,37 @@ import {
   CheckCircle2,
   XCircle,
   Sparkles,
-  AlertTriangle,
   RefreshCw,
   Building2,
   Clock,
   Printer,
-  FileText
+  FileText,
+  LogOut,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  Search,
+  Filter,
+  Calendar,
 } from 'lucide-react';
 
+// --- Interfaces ---
 interface ControlAnswer {
   id: string;
   control_id: string;
   control_name: string;
   implemented: number;
   notes: string;
+}
+
+interface EvidenceFile {
+  id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
 }
 
 interface Submission {
@@ -34,6 +50,8 @@ interface Submission {
   status: string;
   created_at?: string;
   answers: ControlAnswer[];
+  evidence_files?: EvidenceFile[];
+  ai_analysis?: string | null;
 }
 
 interface GapItem {
@@ -52,10 +70,10 @@ interface RemediationStep {
 interface ControlReport {
   controlId: string;
   controlTitle: string;
-  controlDescription: string;
-  evidenceFile: string;
-  submittedBy: string;
-  generatedAt: string;
+  controlDescription?: string;
+  evidenceFile?: string;
+  submittedBy?: string;
+  generatedAt?: string;
   satisfaction: 'Fully' | 'Partially' | 'No';
   justification: string;
   gaps: GapItem[];
@@ -68,184 +86,136 @@ interface FullGapAnalysis {
 }
 
 export default function GRCDashboardPage() {
-  const { data: session } = useSession(); 
+  const { data: session } = useSession();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [analysisResults, setAnalysisResults] = useState<Record<string, FullGapAnalysis>>({});
-  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [analyzingIds, setAnalyzingIds] = useState<Record<string, boolean>>({});
+  const [analysisErrors, setAnalysisErrors] = useState<Record<string, string>>({});
   const [printingSubId, setPrintingSubId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSubmissions();
-  }, []);
+  // Tabs & Filters State
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedBU, setSelectedBU] = useState<string>('ALL');
+  const [selectedYear, setSelectedYear] = useState<string>('ALL');
 
-  const fetchSubmissions = async () => {
+  // Track collapsed submissions by ID
+  const [collapsedSubmissions, setCollapsedSubmissions] = useState<Set<string>>(new Set());
+
+  // Fetch Submissions (Sorted newest first)
+  const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/grc/submissions');
+      const res = await fetch('/api/grc/submissions', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        setSubmissions(data.submissions || []);
+        let loadedSubmissions: Submission[] = data.submissions || [];
+
+        // Ensure array is strictly sorted newest first
+        loadedSubmissions.sort((a, b) => {
+          const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return timeB - timeA;
+        });
+
+        setSubmissions(loadedSubmissions);
+
+        // Preload existing AI analysis JSON
+        const preloadedAnalysis: Record<string, FullGapAnalysis> = {};
+        loadedSubmissions.forEach((sub) => {
+          if (sub.ai_analysis) {
+            try {
+              preloadedAnalysis[sub.id] =
+                typeof sub.ai_analysis === 'string'
+                  ? JSON.parse(sub.ai_analysis)
+                  : sub.ai_analysis;
+            } catch (err) {
+              console.error(`Failed to parse cached analysis for ${sub.id}:`, err);
+            }
+          }
+        });
+        setAnalysisResults(preloadedAnalysis);
       }
     } catch (error) {
       console.error('Failed to load submissions:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const runAIGapAnalysis = (sub: Submission) => {
-    setAnalyzingId(sub.id);
+  useEffect(() => {
+    fetchSubmissions();
+  }, [fetchSubmissions]);
 
-    setTimeout(() => {
-      const totalControls = sub.answers.length;
-      const implementedCount = sub.answers.filter((a) => a.implemented === 1).length;
-      const score = Math.round((implementedCount / (totalControls || 1)) * 100);
-
-      const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC';
-
-      const reports: ControlReport[] = sub.answers.map((ans) => {
-        const isImplemented = ans.implemented === 1;
-
-        if (ans.control_id === 'A.5.15') {
-          return {
-            controlId: 'A.5.15',
-            controlTitle: 'Access control',
-            controlDescription:
-              'Rules to control physical and logical access to information and other associated assets shall be established and implemented based on business and information security requirements.',
-            evidenceFile: 'RND_Access_Control_Policy_v2.docx',
-            submittedBy: `${sub.submitter_name} (${sub.business_unit})`,
-            generatedAt,
-            satisfaction: isImplemented ? 'Partially' : 'No',
-            justification:
-              'The evidence defines access control rules (RBAC/Okta SSO) but lacks formal operational proof, monitoring logs, and physical access boundary controls required for complete compliance.',
-            gaps: [
-              {
-                category: 'Technical Implementation',
-                gapTitle: 'Technical Mapping Details',
-                description:
-                  'No explicit mapping documentation showing how role permissions map directly to database or cloud IAM roles.',
-              },
-              {
-                category: 'Enforcement Mechanism',
-                gapTitle: 'Monitoring and Alerting',
-                description:
-                  'Missing details on log retention periods, SIEM integration, and automated alert triggers for unauthorized access attempts.',
-              },
-              {
-                category: 'Physical Security',
-                gapTitle: 'Physical Access Controls',
-                description:
-                  'The submission focuses exclusively on logical access and lacks physical security controls (badge access logs, server room policies).',
-              },
-            ],
-            remediations: [
-              {
-                priority: 'High',
-                stepTitle: 'Technical Mapping Documentation',
-                description:
-                  'Create a cross-reference matrix mapping defined RBAC profiles directly to Okta and cloud environment permissions.',
-                responsibleParty: 'Security Engineering Team',
-              },
-              {
-                priority: 'Medium',
-                stepTitle: 'Formalize Access Review Lifecycle',
-                description:
-                  'Establish a mandatory quarterly review process for managers to re-certify user access privileges.',
-                responsibleParty: 'System Owners & GRC',
-              },
-            ],
-          };
-        }
-
-        if (ans.control_id === 'A.8.12') {
-          return {
-            controlId: 'A.8.12',
-            controlTitle: 'Data leakage prevention',
-            controlDescription:
-              'Data leakage prevention measures shall be applied to systems, networks and any other devices that process, store or transmit sensitive information.',
-            evidenceFile: 'Pending Workstation Logs.docx',
-            submittedBy: `${sub.submitter_name} (${sub.business_unit})`,
-            generatedAt,
-            satisfaction: 'No',
-            justification:
-              'DLP endpoint agents are currently uninstalled across Linux workstations due to driver issues on kernel 6.x, resulting in unmitigated risk of data exfiltration.',
-            gaps: [
-              {
-                category: 'Endpoint Coverage',
-                gapTitle: 'Unprotected Linux Workstations',
-                description:
-                  'DLP driver compatibility issues leave research workstations exposed without active monitoring.',
-              },
-              {
-                category: 'Egress Monitoring',
-                gapTitle: 'Absence of Network DLP',
-                description:
-                  'No network-level data loss prevention rules are configured for cloud or code repository export endpoints.',
-              },
-            ],
-            remediations: [
-              {
-                priority: 'High',
-                stepTitle: 'Deploy Linux Kernel Patch / Alternative Agent',
-                description:
-                  'Resolve agent driver compatibility with Linux 6.x or deploy a containerized DLP proxy temporarily.',
-                responsibleParty: 'SRE & Endpoint Security Team',
-              },
-              {
-                priority: 'High',
-                stepTitle: 'Implement Cloud Storage Egress Safeguards',
-                description:
-                  'Apply strict egress rules and DLP inspection on S3 and code repository outputs.',
-                responsibleParty: 'DevOps / Cloud Infra Team',
-              },
-            ],
-          };
-        }
-
-        // Generic fallback for other controls
-        return {
-          controlId: ans.control_id,
-          controlTitle: ans.control_name,
-          controlDescription:
-            'Security control requirements shall be defined, approved by management, and validated periodically.',
-          evidenceFile: 'Submission Assessment Notes',
-          submittedBy: `${sub.submitter_name} (${sub.business_unit})`,
-          generatedAt,
-          satisfaction: isImplemented ? 'Fully' : 'No',
-          justification: isImplemented
-            ? 'The control implementation statement and attached notes satisfy the baseline requirements.'
-            : 'The business unit declared this control as not implemented.',
-          gaps: isImplemented
-            ? []
-            : [
-                {
-                  category: 'Implementation Gap',
-                  gapTitle: 'Control Not Deployed',
-                  description:
-                    'Self-declared gap. Implementation procedures and formal controls have not been executed.',
-                },
-              ],
-          remediations: isImplemented
-            ? []
-            : [
-                {
-                  priority: 'High',
-                  stepTitle: 'Draft Operational Control Plan',
-                  description:
-                    'Develop standard operating procedures (SOP) and schedule formal execution.',
-                  responsibleParty: `${sub.business_unit} Lead`,
-                },
-              ],
-        };
+  // Handle Archive / Unarchive Action
+  const handleToggleArchive = async (submissionId: string, isCurrentlyArchived: boolean) => {
+    try {
+      const res = await fetch('/api/grc/submissions/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          submissionId,
+          archive: !isCurrentlyArchived,
+        }),
       });
 
-      setAnalysisResults((prev) => ({
+      if (res.ok) {
+        setSubmissions((prev) =>
+          prev.map((sub) =>
+            sub.id === submissionId
+              ? { ...sub, status: !isCurrentlyArchived ? 'ARCHIVED' : 'PENDING REVIEW' }
+              : sub
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error updating archive status:', err);
+    }
+  };
+
+  const toggleCollapse = (id: string) => {
+    setCollapsedSubmissions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Trigger Live AI Analysis
+  const runAIGapAnalysis = async (sub: Submission) => {
+    setAnalyzingIds((prev) => ({ ...prev, [sub.id]: true }));
+    setAnalysisErrors((prev) => ({ ...prev, [sub.id]: '' }));
+
+    setCollapsedSubmissions((prev) => {
+      const next = new Set(prev);
+      next.delete(sub.id);
+      return next;
+    });
+
+    try {
+      const res = await fetch('/api/grc/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: sub.id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate AI Audit analysis.');
+
+      setAnalysisResults((prev) => ({ ...prev, [sub.id]: data.analysis }));
+    } catch (error: any) {
+      setAnalysisErrors((prev) => ({
         ...prev,
-        [sub.id]: { score, reports },
+        [sub.id]: error.message || 'An error occurred during AI analysis.',
       }));
-      setAnalyzingId(null);
-    }, 1000);
+    } finally {
+      setAnalyzingIds((prev) => ({ ...prev, [sub.id]: false }));
+    }
   };
 
   const handleDownloadSingleReport = (submissionId: string) => {
@@ -256,9 +226,59 @@ export default function GRCDashboardPage() {
     }, 100);
   };
 
+  // Derive unique Business Units and Available Years for Filters
+  const uniqueBUs = useMemo(() => {
+    const bus = new Set<string>();
+    submissions.forEach((s) => s.business_unit && bus.add(s.business_unit));
+    return Array.from(bus);
+  }, [submissions]);
+
+  const uniqueYears = useMemo(() => {
+    const years = new Set<string>();
+    submissions.forEach((s) => {
+      if (s.created_at) {
+        years.add(new Date(s.created_at).getFullYear().toString());
+      }
+    });
+    return Array.from(years).sort().reverse();
+  }, [submissions]);
+
+  // Multi-Variable Filtering Logic
+  const filteredSubmissions = useMemo(() => {
+    return submissions.filter((sub) => {
+      const isArchived = sub.status === 'ARCHIVED';
+
+      // 1. Filter by Tab (Active vs Archived)
+      if (activeTab === 'active' && isArchived) return false;
+      if (activeTab === 'archived' && !isArchived) return false;
+
+      // 2. Filter by Business Unit
+      if (selectedBU !== 'ALL' && sub.business_unit !== selectedBU) return false;
+
+      // 3. Filter by Year
+      if (selectedYear !== 'ALL') {
+        const subYear = sub.created_at
+          ? new Date(sub.created_at).getFullYear().toString()
+          : '';
+        if (subYear !== selectedYear) return false;
+      }
+
+      // 4. Filter by Search Keyword (Submitter, Email, BU, ID)
+      if (searchTerm.trim() !== '') {
+        const query = searchTerm.toLowerCase();
+        const matchesBU = sub.business_unit.toLowerCase().includes(query);
+        const matchesSubmitter = sub.submitter_name.toLowerCase().includes(query);
+        const matchesEmail = sub.submitter_email.toLowerCase().includes(query);
+        const matchesId = sub.id.toLowerCase().includes(query);
+        if (!matchesBU && !matchesSubmitter && !matchesEmail && !matchesId) return false;
+      }
+
+      return true;
+    });
+  }, [submissions, activeTab, selectedBU, selectedYear, searchTerm]);
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
-      {/* Dynamic CSS Rules for Printing Specific Submissions */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
       <style jsx global>{`
         @media print {
           body {
@@ -280,66 +300,44 @@ export default function GRCDashboardPage() {
             padding: 0 !important;
             margin: 0 !important;
           }
-          .print-only {
-            display: block !important;
-          }
           .print-text-dark {
             color: #0f172a !important;
           }
           .print-text-muted {
             color: #475569 !important;
           }
-          .print-badge {
-            border: 1px solid #000 !important;
-            color: #000 !important;
-            background: #f1f5f9 !important;
-          }
-          table {
-            border-collapse: collapse !important;
-            width: 100% !important;
-          }
-          th, td {
-            border: 1px solid #cbd5e1 !important;
-            color: #0f172a !important;
-          }
-        }
-        @media screen {
-          .print-only {
-            display: none !important;
-          }
         }
       `}</style>
 
-    {/* Screen Header */}
-      <header className="no-print max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 mb-8 gap-4">
+      {/* Screen Header */}
+      <header className="no-print max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <ShieldCheck className="w-7 h-7 text-blue-400" />
             GRC Compliance Review Dashboard
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Review incoming Business Unit self-assessments, trigger AI Gap Analysis reports, and export individual executive PDFs.
+            Real-time ISO 27001 assessment reviews, multi-year filtering, and archived report management.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Refresh Button */}
           <button
             onClick={fetchSubmissions}
-            className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 rounded-lg transition-colors"
+            disabled={loading}
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 rounded-lg transition-colors disabled:opacity-50"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
 
-          {/* User Session Info & Logout Button */}
           {session?.user && (
             <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
               <span className="text-xs text-slate-400 font-medium">
                 {session.user.email}
               </span>
               <button
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={() => signOut({ callbackUrl: '/' })}
                 className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs border border-red-500/30 rounded-lg transition-colors font-medium"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -350,33 +348,131 @@ export default function GRCDashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto space-y-8">
+      {/* Tabs & Controls Section */}
+      <section className="no-print max-w-6xl mx-auto space-y-4 mb-6">
+        {/* Navigation Tabs (Active Dashboard vs Archived Vault) */}
+        <div className="flex border-b border-slate-800">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`px-5 py-2.5 font-medium text-xs border-b-2 flex items-center gap-2 transition-colors ${
+              activeTab === 'active'
+                ? 'border-blue-500 text-blue-400 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Active Assessments
+          </button>
+
+          <button
+            onClick={() => setActiveTab('archived')}
+            className={`px-5 py-2.5 font-medium text-xs border-b-2 flex items-center gap-2 transition-colors ${
+              activeTab === 'archived'
+                ? 'border-amber-500 text-amber-400 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Archive className="w-4 h-4" />
+            Archived Vault
+          </button>
+        </div>
+
+        {/* Multi-Variable Filters Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-900/80 p-3.5 rounded-xl border border-slate-800">
+          {/* Text Search Input */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+            <input
+              type="text"
+              placeholder="Search submitter, BU, or ID..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs pl-8 pr-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 placeholder-slate-500"
+            />
+          </div>
+
+          {/* Business Unit Filter */}
+          <div className="relative">
+            <Filter className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+            <select
+              value={selectedBU}
+              onChange={(e) => setSelectedBU(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs pl-8 pr-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 appearance-none"
+            >
+              <option value="ALL">All Business Units</option>
+              {uniqueBUs.map((bu) => (
+                <option key={bu} value={bu}>
+                  {bu}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Specific / Multi-Year Filter */}
+          <div className="relative">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs pl-8 pr-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 appearance-none"
+            >
+              <option value="ALL">All Assessment Years</option>
+              {uniqueYears.map((year) => (
+                <option key={year} value={year}>
+                  Year {year}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Reset Filters */}
+          <button
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedBU('ALL');
+              setSelectedYear('ALL');
+            }}
+            className="text-xs bg-slate-800 hover:bg-slate-750 text-slate-300 font-medium py-2 px-3 rounded-lg border border-slate-700 transition-colors"
+          >
+            Reset Filters
+          </button>
+        </div>
+      </section>
+
+      {/* Main Submissions Output */}
+      <main className="max-w-6xl mx-auto space-y-4">
         {loading ? (
           <div className="no-print p-12 text-center bg-slate-900 border border-slate-800 rounded-xl text-slate-400 text-sm">
-            Loading submissions...
+            Loading database records...
           </div>
-        ) : submissions.length === 0 ? (
-          <div className="no-print p-12 text-center bg-slate-900 border border-slate-800 rounded-xl text-slate-400 text-sm">
-            No submissions found in the database.
+        ) : filteredSubmissions.length === 0 ? (
+          <div className="no-print p-12 text-center bg-slate-900/60 border border-dashed border-slate-800 rounded-xl text-slate-400 text-sm">
+            {activeTab === 'archived'
+              ? 'No archived reports match your current filter criteria.'
+              : 'No active submissions found.'}
           </div>
         ) : (
-          submissions.map((sub) => {
+          filteredSubmissions.map((sub) => {
             const analysis = analysisResults[sub.id];
             const isTargetPrint = printingSubId === sub.id;
+            const isCollapsed = collapsedSubmissions.has(sub.id);
+            const isAnalyzing = !!analyzingIds[sub.id];
+            const auditError = analysisErrors[sub.id];
+            const isArchived = sub.status === 'ARCHIVED';
 
             return (
               <div
                 key={sub.id}
-                className={`print-submission-card bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6 shadow-xl ${
+                className={`print-submission-card bg-slate-900 border border-slate-800 rounded-xl p-6 transition-all shadow-xl ${
                   isTargetPrint ? 'active-print' : ''
                 }`}
               >
-                {/* Print Header Header (Only visible on PDF export) */}
-                <div className="print-only mb-6 pb-4 border-b border-slate-300">
+                {/* Print Header */}
+                <div className="hidden print:block mb-6 pb-4 border-b border-slate-300">
                   <div className="flex justify-between items-center">
                     <div>
                       <h1 className="text-2xl font-bold text-slate-900">
-                        Information Security GRC Analysis Report
+                        ISO/IEC 27001 AI Auditor Compliance Report
                       </h1>
                       <p className="text-sm text-slate-600">
                         Governance, Risk Management, and Compliance (GRC) Audit Division
@@ -390,17 +486,33 @@ export default function GRCDashboardPage() {
                 </div>
 
                 {/* Submission Header Bar */}
-                <div className="flex flex-wrap justify-between items-start border-b border-slate-800/80 pb-4 gap-4">
-                  <div>
+                <div className="flex flex-wrap justify-between items-start gap-4">
+                  <div
+                    onClick={() => toggleCollapse(sub.id)}
+                    className="cursor-pointer group flex-1 min-w-[280px]"
+                  >
                     <div className="flex items-center gap-3 mb-2">
                       <span className="print-badge inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-md">
                         <Building2 className="w-3.5 h-3.5" />
                         {sub.business_unit}
                       </span>
-                      <span className="print-badge inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+
+                      <span
+                        className={`print-badge inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full border ${
+                          isArchived
+                            ? 'bg-amber-950/60 text-amber-400 border-amber-800'
+                            : 'bg-emerald-950/60 text-emerald-400 border-emerald-800'
+                        }`}
+                      >
                         <Clock className="w-3 h-3" />
                         {sub.status || 'PENDING REVIEW'}
                       </span>
+
+                      {analysis && (
+                        <span className="no-print px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          AI Score: {analysis.score}%
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 print-text-muted">
@@ -410,108 +522,123 @@ export default function GRCDashboardPage() {
                       <span className="flex items-center gap-1">
                         <Mail className="w-3.5 h-3.5 text-slate-400" /> {sub.submitter_email}
                       </span>
+                      {sub.created_at && (
+                        <span className="text-slate-500">
+                          • {new Date(sub.created_at).toLocaleString()}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Submission Specific Action Buttons */}
+                  {/* Action Buttons Bar */}
                   <div className="no-print flex items-center gap-2">
+                    {/* Archive / Restore Button */}
+                    <button
+                      onClick={() => handleToggleArchive(sub.id, isArchived)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        isArchived
+                          ? 'bg-amber-950/50 hover:bg-amber-900/60 text-amber-300 border-amber-800'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                      title={isArchived ? 'Restore report to active dashboard' : 'Archive report'}
+                    >
+                      {isArchived ? (
+                        <>
+                          <ArchiveRestore className="w-3.5 h-3.5 text-amber-400" />
+                          Unarchive
+                        </>
+                      ) : (
+                        <>
+                          <Archive className="w-3.5 h-3.5 text-slate-400" />
+                          Archive
+                        </>
+                      )}
+                    </button>
+
                     <button
                       onClick={() => runAIGapAnalysis(sub)}
-                      disabled={analyzingId === sub.id}
-                      className="flex items-center gap-2 px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-lg text-xs font-medium transition-all"
+                      disabled={isAnalyzing}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
                     >
-                      <Sparkles className="w-4 h-4 text-purple-400" />
-                      {analyzingId === sub.id ? 'Generating Report...' : 'Run AI Gap Analysis'}
+                      <Sparkles
+                        className={`w-3.5 h-3.5 text-purple-400 ${isAnalyzing ? 'animate-spin' : ''}`}
+                      />
+                      {isAnalyzing ? 'Auditing...' : analysis ? 'Re-Run AI' : 'Run AI Audit'}
                     </button>
 
                     <button
                       onClick={() => handleDownloadSingleReport(sub.id)}
-                      className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium transition-all"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium transition-all"
                     >
-                      <Printer className="w-4 h-4 text-blue-400" />
-                      Export Executive PDF
+                      <Printer className="w-3.5 h-3.5 text-blue-400" />
+                      PDF
+                    </button>
+
+                    <button
+                      onClick={() => toggleCollapse(sub.id)}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors"
+                    >
+                      {isCollapsed ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronUp className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
 
-                {/* Structured AI Gap Analysis Report Sections */}
-                {analysis && (
-                  <div className="space-y-6 pt-2">
-                    <div className="flex items-center justify-between border-b border-purple-800/40 pb-3">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-400" />
-                        <h2 className="text-base font-bold text-purple-200 print-text-dark">
-                          AI Executive Gap Analysis Reports
-                        </h2>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400 print-text-muted">Compliance Readiness:</span>
-                        <span className="px-2.5 py-1 rounded text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                          {analysis.score}%
-                        </span>
-                      </div>
+                {/* Body Content */}
+                <div
+                  className={`${
+                    isCollapsed ? 'hidden print:block' : 'block'
+                  } space-y-6 pt-6 border-t border-slate-800/80 mt-4`}
+                >
+                  {auditError && (
+                    <div className="bg-red-950/80 border border-red-800 text-red-200 p-3 rounded-lg text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>{auditError}</span>
                     </div>
+                  )}
 
-                    {analysis.reports.map((report) => (
-                      <div
-                        key={report.controlId}
-                        className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-6 print-card"
-                      >
-                        {/* 1. Header Metadata Table */}
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs text-left border border-slate-800 rounded-lg">
-                            <tbody>
-                              <tr className="border-b border-slate-800">
-                                <td className="p-2.5 font-bold text-slate-400 bg-slate-900/60 w-36">Control</td>
-                                <td className="p-2.5 text-white font-mono print-text-dark">
-                                  {report.controlId} - {report.controlTitle}
-                                </td>
-                              </tr>
-                              <tr className="border-b border-slate-800">
-                                <td className="p-2.5 font-bold text-slate-400 bg-slate-900/60">Evidence file</td>
-                                <td className="p-2.5 text-slate-300 print-text-dark flex items-center gap-1.5">
-                                  <FileText className="w-3.5 h-3.5 text-blue-400" />
-                                  {report.evidenceFile}
-                                </td>
-                              </tr>
-                              <tr className="border-b border-slate-800">
-                                <td className="p-2.5 font-bold text-slate-400 bg-slate-900/60">Submitted by</td>
-                                <td className="p-2.5 text-slate-300 print-text-dark">{report.submittedBy}</td>
-                              </tr>
-                              <tr className="border-b border-slate-800">
-                                <td className="p-2.5 font-bold text-slate-400 bg-slate-900/60">AI provider</td>
-                                <td className="p-2.5 text-slate-300 print-text-dark">Local Model (Ollama / LM Studio)</td>
-                              </tr>
-                              <tr>
-                                <td className="p-2.5 font-bold text-slate-400 bg-slate-900/60">Generated</td>
-                                <td className="p-2.5 text-slate-300 print-text-dark">{report.generatedAt}</td>
-                              </tr>
-                            </tbody>
-                          </table>
+                  {/* Structured AI Analysis Output */}
+                  {analysis && (
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between border-b border-purple-800/40 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-purple-400" />
+                          <h2 className="text-base font-bold text-purple-200 print-text-dark">
+                            ISO Lead Auditor AI Analysis
+                          </h2>
                         </div>
-
-                        {/* Control Metadata */}
-                        <div className="border-l-2 border-blue-500 pl-4 py-1 space-y-1">
-                          <div className="text-xs text-slate-400 font-semibold print-text-muted">
-                            Control ID: <span className="text-white font-mono">{report.controlId}</span>
-                          </div>
-                          <div className="text-sm font-bold text-white print-text-dark">
-                            Control Title: {report.controlTitle}
-                          </div>
-                          <div className="text-xs text-slate-400 leading-relaxed print-text-muted">
-                            <span className="font-semibold text-slate-300">Description:</span> {report.controlDescription}
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 print-text-muted">
+                            Audited Readiness Score:
+                          </span>
+                          <span
+                            className={`px-2.5 py-1 rounded text-xs font-bold border ${
+                              analysis.score >= 80
+                                ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                                : analysis.score >= 50
+                                ? 'bg-amber-950 text-amber-400 border-amber-800'
+                                : 'bg-rose-950 text-rose-400 border-rose-800'
+                            }`}
+                          >
+                            {analysis.score}%
+                          </span>
                         </div>
+                      </div>
 
-                        {/* Section 1: Evidence Satisfaction Assessment */}
-                        <div className="space-y-2">
-                          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider print-text-dark">
-                            1) Evidence Satisfaction Assessment
-                          </h3>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400">Assessment:</span>
+                      {analysis.reports?.map((report) => (
+                        <div
+                          key={report.controlId}
+                          className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-mono text-sm font-bold text-blue-400">
+                              {report.controlId} - {report.controlTitle}
+                            </span>
                             <span
-                              className={`px-2.5 py-0.5 rounded text-xs font-bold ${
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                 report.satisfaction === 'Fully'
                                   ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                                   : report.satisfaction === 'Partially'
@@ -519,145 +646,63 @@ export default function GRCDashboardPage() {
                                   : 'bg-rose-950 text-rose-400 border border-rose-800'
                               }`}
                             >
-                              {report.satisfaction}
+                              {report.satisfaction} Compliant
                             </span>
                           </div>
-                          <p className="text-xs text-slate-300 leading-relaxed print-text-dark bg-slate-900/50 p-3 rounded-lg border border-slate-800">
-                            <span className="font-bold text-slate-200">Justification: </span>
+
+                          <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+                            <strong>Auditor Evaluation: </strong>
                             {report.justification}
                           </p>
-                        </div>
 
-                        {/* Section 2: Specific Gaps or Missing Elements */}
-                        <div className="space-y-3">
-                          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider print-text-dark">
-                            2) Specific Gaps or Missing Elements
-                          </h3>
-                          {report.gaps.length === 0 ? (
-                            <div className="text-xs text-slate-400 italic">No specific gaps identified.</div>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs text-left border border-slate-800">
-                                <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
-                                  <tr>
-                                    <th className="p-2.5 w-1/4">Category</th>
-                                    <th className="p-2.5 w-1/3">Gap/Missing Element</th>
-                                    <th className="p-2.5">Description</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800">
-                                  {report.gaps.map((gap, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-900/40">
-                                      <td className="p-2.5 font-medium text-slate-300 print-text-dark">{gap.category}</td>
-                                      <td className="p-2.5 font-bold text-rose-400 print-text-dark">{gap.gapTitle}</td>
-                                      <td className="p-2.5 text-slate-400 leading-relaxed print-text-muted">{gap.description}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                          {report.gaps && report.gaps.length > 0 && (
+                            <div className="space-y-1">
+                              <h4 className="text-[10px] font-bold text-amber-400 uppercase">
+                                Findings & OFIs
+                              </h4>
+                              {report.gaps.map((gap, i) => (
+                                <div key={i} className="text-xs text-slate-300">
+                                  • <strong className="text-slate-200">[{gap.category}] {gap.gapTitle}:</strong> {gap.description}
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
-
-                        {/* Section 3: Suggested Remediation Steps */}
-                        <div className="space-y-3">
-                          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider print-text-dark">
-                            3) Suggested Remediation Steps
-                          </h3>
-                          {report.remediations.length === 0 ? (
-                            <div className="text-xs text-slate-400 italic">No remediation steps required.</div>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs text-left border border-slate-800">
-                                <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
-                                  <tr>
-                                    <th className="p-2.5 w-24">Priority</th>
-                                    <th className="p-2.5 w-1/3">Remediation Step</th>
-                                    <th className="p-2.5">Description/Action Item</th>
-                                    <th className="p-2.5 w-1/4">Responsible Party</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800">
-                                  {report.remediations.map((rem, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-900/40">
-                                      <td className="p-2.5 font-bold">
-                                        <span
-                                          className={`px-2 py-0.5 rounded text-[11px] ${
-                                            rem.priority === 'High'
-                                              ? 'bg-rose-950 text-rose-400 border border-rose-800'
-                                              : rem.priority === 'Medium'
-                                              ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                                              : 'bg-slate-800 text-slate-300'
-                                          }`}
-                                        >
-                                          {rem.priority}
-                                        </span>
-                                      </td>
-                                      <td className="p-2.5 font-bold text-slate-200 print-text-dark">{rem.stepTitle}</td>
-                                      <td className="p-2.5 text-slate-400 leading-relaxed print-text-muted">{rem.description}</td>
-                                      <td className="p-2.5 text-slate-300 print-text-dark">{rem.responsibleParty}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Submissions Control Grid Table */}
-                <div className="space-y-3 pt-4 border-t border-slate-800">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider print-text-dark">
-                    Submitted Control Self-Declarations
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {sub.answers.map((ans) => (
-                      <div
-                        key={ans.id}
-                        className="p-3.5 bg-slate-950 border border-slate-800/80 rounded-lg text-xs space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-blue-400">{ans.control_id}</span>
-                          {ans.implemented === 1 ? (
-                            <span className="flex items-center gap-1 text-emerald-400 font-medium text-[11px]">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Implemented
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-rose-400 font-medium text-[11px]">
-                              <XCircle className="w-3.5 h-3.5" /> Gap Identified
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-slate-200 font-medium print-text-dark">
-                          {ans.control_name}
-                        </div>
-                        {ans.notes ? (
-                          <div className="text-slate-400 italic text-[11px] bg-slate-900/50 p-2 rounded border border-slate-800/50 print-text-muted">
-                            "{ans.notes}"
-                          </div>
-                        ) : (
-                          <div className="text-slate-600 text-[11px] italic">No notes provided</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Print Sign-off Block (Visible only on PDF export) */}
-                <div className="print-only pt-8 mt-8 border-t border-slate-300">
-                  <div className="grid grid-cols-2 gap-8 text-xs text-slate-700">
-                    <div>
-                      <p className="font-bold mb-4">GRC Lead Auditor Sign-off:</p>
-                      <div className="border-b border-slate-400 h-8 mb-1"></div>
-                      <p>Signature & Date</p>
+                      ))}
                     </div>
-                    <div>
-                      <p className="font-bold mb-4">Business Unit Head Acknowledgment:</p>
-                      <div className="border-b border-slate-400 h-8 mb-1"></div>
-                      <p>Signature & Date</p>
+                  )}
+
+                  {/* Submissions Control Grid */}
+                  <div className="space-y-3 pt-2">
+                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider print-text-dark">
+                      Submitted Control Self-Declarations
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {(sub.answers || []).map((ans) => (
+                        <div
+                          key={ans.id || ans.control_id}
+                          className="p-3 bg-slate-950 border border-slate-800/80 rounded-lg text-xs space-y-1"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-blue-400">
+                              {ans.control_id}
+                            </span>
+                            {Number(ans.implemented) === 1 ? (
+                              <span className="flex items-center gap-1 text-emerald-400 text-[11px]">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Implemented
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-rose-400 text-[11px]">
+                                <XCircle className="w-3.5 h-3.5" /> Gap
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-slate-200 font-medium">{ans.control_name}</div>
+                          {ans.notes && (
+                            <p className="text-slate-400 text-[11px] italic">"{ans.notes}"</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
