@@ -3,10 +3,11 @@ import { turso } from '@/lib/turso';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const fileId = params.id;
+    const { id: fileId } = await params;
+
     const result = await turso.execute({
       sql: `SELECT file_name, file_type, base64_data FROM evidence_files WHERE id = ?`,
       args: [fileId],
