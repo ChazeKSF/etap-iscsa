@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
-import { turso } from '@/lib/turso';
+import { NextResponse } from "next/server";
+import { turso } from "@/lib/turso";
 
 export async function GET(
   request: Request,
@@ -14,7 +14,7 @@ export async function GET(
     });
 
     if (result.rows.length === 0) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 });
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
     const file = result.rows[0];
