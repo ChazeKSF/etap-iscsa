@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { turso } from '@/lib/turso';
 
 export const dynamic = 'force-dynamic';
+// Extend max execution time for AI inference on Vercel (up to 60s)
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
@@ -34,10 +36,11 @@ export async function POST(req: Request) {
       args: [submissionId],
     });
 
-    const evidenceFileList = evidenceResult.rows.map((f: any) => f.file_name).join(', ') || 'No attached files';
+    const evidenceFileList =
+      evidenceResult.rows.map((f: any) => f.file_name).join(', ') || 'No attached files';
 
     // 3. System & User Prompts for ISO Lead Auditor Engine
-const systemPrompt = `You are an independent Senior ISO/IEC 27001 Lead Auditor evaluating an Information Security Management System (ISCSA) assessment.
+    const systemPrompt = `You are an independent Senior ISO/IEC 27001 Lead Auditor evaluating an Information Security Management System (ISCSA) assessment.
 
 AUDITOR MANDATE (ZERO TRUST ASSUMPTION):
 1. TREAT ALL "implemented" LABELS AS UNVERIFIED CLAIMS: Business Units frequently self-declare controls as "implemented" (1) when they are actually non-compliant, partially implemented, or lack operational proof. NEVER accept a self-declared "implemented" status at face value.
@@ -88,36 +91,64 @@ Attached Evidence Files: ${evidenceFileList}
 Control Assessments:
 ${JSON.stringify(controlsResult.rows, null, 2)}`;
 
-    // 4. Call local Ollama REST API with system prompt & JSON formatting
-    const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-    const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
+    // 4. Resolve LLM Connection Configuration
+    // Works with Groq, OpenAI, or a remote Ollama proxy
+    const baseUrl = (process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1').replace(/\/$/, '');
+    const apiKey = process.env.LLM_API_KEY || '';
+    const model = process.env.LLM_MODEL || 'llama-3.3-70b-versatile';
 
-    const ollamaResponse = await fetch(`${OLLAMA_HOST}/api/generate`, {
+    // Validate environment variables in production
+    if (!apiKey && !baseUrl.includes('127.0.0.1') && !baseUrl.includes('localhost')) {
+      return NextResponse.json(
+        { error: 'LLM_API_KEY is missing in production environment variables.' },
+        { status: 500 }
+      );
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    // 5. Call LLM Endpoint via OpenAI-Compatible Chat Completions API
+    const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        system: systemPrompt,
-        prompt: userPrompt,
-        format: 'json', // Enforces structured JSON output from Ollama
-        stream: false,
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
       }),
     });
 
-    if (!ollamaResponse.ok) {
-      throw new Error(`Ollama connection error: ${ollamaResponse.statusText}`);
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      console.error('AI API Response Error:', errorText);
+      throw new Error(`AI Provider returned HTTP ${aiResponse.status}: ${errorText}`);
     }
 
-    const data = await ollamaResponse.json();
+    const responseData = await aiResponse.json();
+    const rawContent = responseData.choices?.[0]?.message?.content;
+
+    if (!rawContent) {
+      throw new Error('No content returned from AI provider.');
+    }
+
     let analysisData;
-
     try {
-      analysisData = JSON.parse(data.response);
+      analysisData = JSON.parse(rawContent);
     } catch {
-      throw new Error('Failed to parse structured JSON response from local AI model.');
+      throw new Error('Failed to parse structured JSON response from AI provider.');
     }
 
-    // 5. Store stringified structured report in Turso DB
+    // 6. Store stringified structured report in Turso DB
     await turso.execute({
       sql: `UPDATE submissions SET ai_analysis = ? WHERE id = ?`,
       args: [JSON.stringify(analysisData), submissionId],
@@ -125,10 +156,10 @@ ${JSON.stringify(controlsResult.rows, null, 2)}`;
 
     return NextResponse.json({ success: true, analysis: analysisData });
   } catch (error: any) {
-    console.error('Ollama Analysis Error:', error);
+    console.error('AI Analysis Endpoint Error:', error);
     return NextResponse.json(
       {
-        error: error.message || 'Failed to generate AI analysis. Make sure Ollama is running locally.',
+        error: error.message || 'Failed to generate AI analysis.',
       },
       { status: 500 }
     );
