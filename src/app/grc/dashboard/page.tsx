@@ -23,6 +23,8 @@ import {
   Search,
   Filter,
   Calendar,
+  Paperclip,
+  ExternalLink,
 } from 'lucide-react';
 
 // --- Interfaces ---
@@ -36,10 +38,18 @@ interface ControlAnswer {
 
 interface EvidenceFile {
   id: string;
-  file_name: string;
-  file_type: string;
-  file_size: number;
-  created_at: string;
+  file_name?: string;
+  fileName?: string;
+  name?: string;
+  file_type?: string;
+  fileType?: string;
+  file_size?: number;
+  fileSize?: number;
+  size?: number;
+  file_url?: string;
+  fileUrl?: string;
+  url?: string;
+  created_at?: string;
 }
 
 interface Submission {
@@ -51,6 +61,7 @@ interface Submission {
   created_at?: string;
   answers: ControlAnswer[];
   evidence_files?: EvidenceFile[];
+  evidenceFiles?: EvidenceFile[];
   ai_analysis?: string | null;
 }
 
@@ -460,6 +471,9 @@ export default function GRCDashboardPage() {
             const auditError = analysisErrors[sub.id];
             const isArchived = sub.status === 'ARCHIVED';
 
+            // Extract evidence files safely supporting both key formats
+            const files = sub.evidence_files || sub.evidenceFiles || [];
+
             return (
               <div
                 key={sub.id}
@@ -599,6 +613,62 @@ export default function GRCDashboardPage() {
                       <span>{auditError}</span>
                     </div>
                   )}
+
+                  {/* Attached Evidence Files Section */}
+                  <div className="space-y-2 bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                      <Paperclip className="w-4 h-4 text-blue-400" />
+                      <span>Attached Evidence Files ({files.length})</span>
+                    </div>
+
+                    {files.length === 0 ? (
+                      <p className="text-xs text-slate-500 italic pl-6">
+                        No evidence files were attached to this submission.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {files.map((file, idx) => {
+                          const fileName = file.file_name || file.fileName || file.name || 'Evidence File';
+                          const fileUrl = file.file_url || file.fileUrl || file.url || '#';
+                          const fileSizeKb = file.file_size || file.fileSize || file.size
+                            ? Math.round((file.file_size || file.fileSize || file.size || 0) / 1024)
+                            : 0;
+
+                          return (
+                            <div
+                              key={file.id || idx}
+                              className="flex items-center justify-between p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-xs"
+                            >
+                              <div className="flex items-center gap-2 truncate pr-2">
+                                <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                                <span className="text-slate-200 font-medium truncate" title={fileName}>
+                                  {fileName}
+                                </span>
+                                {fileSizeKb > 0 && (
+                                  <span className="text-[10px] text-slate-500 shrink-0">
+                                    ({fileSizeKb} KB)
+                                  </span>
+                                )}
+                              </div>
+
+                              {fileUrl && fileUrl !== '#' ? (
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="no-print flex items-center gap-1 text-blue-400 hover:text-blue-300 font-medium text-[11px] shrink-0 hover:underline"
+                                >
+                                  View <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 italic">No URL</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Structured AI Analysis Output */}
                   {analysis && (
